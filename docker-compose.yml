@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Heiway@321
+      POSTGRES_DB: assetwatch_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d assetwatch_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:Heiway@321@postgres:5432/assetwatch_db?sslmode=disable
+      JWT_SECRET: S3pt3mb3r@29
+      ALLOWED_EMAIL_DOMAIN: sbs.com.pg
+      PORT: "4083"
+    ports:
+      - "4083:4083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./web:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 8083"
+    environment:
+      VITE_API_URL: http://localhost:4083
+    ports:
+      - "8083:8083"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+

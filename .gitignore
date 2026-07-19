@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+
+# build artifacts
+/bin/
+/dist/
+
+# uploaded user data
+/data/uploads/
+
+# node
+node_modules/
+web/dist/
+
+# editor/OS
+.DS_Store
+Thumbs.db
+
+# claude code local state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
