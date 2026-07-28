@@ -18,6 +18,7 @@ the application's database and login.
 - [1. Prerequisites](#1-prerequisites)
 - [2. Building the binaries](#2-building-the-binaries)
 - [3. Native binary deployment](#3-native-binary-deployment)
+- [3.7 Directory layout on the server](#37-directory-layout-on-the-server)
 - [4. Reverse proxy & TLS](#4-reverse-proxy--tls)
 - [5. Post-deploy verification](#5-post-deploy-verification)
 - [6. Upgrades](#6-upgrades)
@@ -70,7 +71,7 @@ cd web; npm install; npm run build; cd ..
 
 # 2. Build both binaries for Windows, stamping version info into the binary:
 $env:GOOS = "windows"; $env:GOARCH = "amd64"; $env:CGO_ENABLED = "0"
-$version = "1.0.5"                                  # bump per release
+$version = "1.0.7"                                  # bump per release
 $commit = (git rev-parse --short HEAD)
 $buildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $versionPkg = "sbs-bsp-cctv/internal/version"
@@ -242,6 +243,44 @@ nssm stop sbs-api
 nssm edit sbs-api      # opens the GUI editor for all settings
 nssm remove sbs-api confirm   # uninstalls the service (does not delete files)
 ```
+
+Continue with [§3.7 Directory layout on the server](#37-directory-layout-on-the-server).
+
+---
+
+### 3.7 Directory layout on the server
+
+Everything the app needs lives under one root, e.g. `C:\sbs-cctv\` (the
+`AppDirectory` NSSM was pointed at in [§3.6](#36-run-as-a-windows-service-nssm)).
+Uploaded files are written to `data\uploads\...` **relative to that working
+directory**, so it must exist (and stay put — see the troubleshooting note
+in [§10](#10-troubleshooting)) before the service starts:
+
+```
+C:\sbs-cctv\
+├── sbs-api.exe                    # from §2 / §3.2
+├── sbs-seed-admin.exe              # from §2 / §3.2 (only needed to run once, §3.5)
+├── .env                            # from §3.4 (if not using AppEnvironmentExtra)
+├── logs\
+│   └── sbs-api.log                 # NSSM stdout/stderr, auto-rotated (§3.6)
+└── data\
+    └── uploads\
+        ├── acceptance\             # client acceptance documents
+        └── installation\           # installation photos
+```
+
+- `logs\` and `data\uploads\` are created automatically (by NSSM and the
+  app respectively) if missing, but they must be on the **same persistent
+  volume** as the rest of the deployment — don't point `AppDirectory` at a
+  path that gets wiped or replaced on redeploy.
+- Only `data\uploads\` needs to be included in backups/DR — everything
+  else is either reproducible from a rebuild (`sbs-api.exe`,
+  `sbs-seed-admin.exe`) or reconstructible from secrets you already store
+  elsewhere (`.env`). See [§7](#7-backups--restore).
+- The two binaries can technically live anywhere as long as
+  `AppDirectory` is set correctly, but keeping them alongside `data\` and
+  `logs\` under one root keeps upgrades ([§6](#6-upgrades)) simple — stop
+  the service, replace the `.exe`, start it again.
 
 Continue with [§4 Reverse proxy & TLS](#4-reverse-proxy--tls).
 

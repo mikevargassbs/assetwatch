@@ -8,6 +8,7 @@ export interface HardwareUnit {
   device_make?: string
   device_model?: string
   part_number?: string
+  item_id?: number
   status: string
   current_stage: string
   board_column: string
@@ -135,6 +136,7 @@ export interface NewUnitInput {
   device_make?: string
   device_model?: string
   part_number?: string
+  item_id?: number
   barcode?: string
   allocated_branch?: string
   meta_data?: Record<string, unknown>

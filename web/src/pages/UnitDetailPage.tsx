@@ -24,7 +24,7 @@ import {
   type Stage1B,
 } from '../api/hardware'
 import { authFetch } from '../api/client'
-import { listSiteLocations, type SiteLocation } from '../api/admin'
+import { listItems, listSiteLocations, type Item, type SiteLocation } from '../api/admin'
 import { CreateFieldModal } from './AdminPage'
 import { listAuditLog, type AuditLogEntry } from '../api/audit'
 import { downloadAuthenticated, unitInfoSheetUrl } from '../api/reporting'
@@ -109,6 +109,7 @@ export function UnitDetailPage() {
   const [acceptance, setAcceptance] = useState<ClientAcceptance | null>(null)
   const [defect, setDefect] = useState<DefectReport | null>(null)
   const [receiving, setReceiving] = useState<Stage0Receiving | null>(null)
+  const [items, setItems] = useState<Item[]>([])
   const [showDeclareDefect, setShowDeclareDefect] = useState(false)
   const [activeTab, setActiveTab] = useState<string | null>(null)
 
@@ -192,6 +193,10 @@ export function UnitDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
+  useEffect(() => {
+    listItems(true).then(setItems).catch(() => setItems([]))
+  }, [])
+
   // Reusable success snackbar for the various stage sections below, all of
   // which just refresh the unit after a save — only the message differs.
   function onSaved(message: string) {
@@ -244,6 +249,7 @@ export function UnitDetailPage() {
         unitId={unit.id}
         canRecord={has('pm_pc')}
         receiving={receiving}
+        defaultPoRef={items.find((it) => it.id === unit.item_id)?.sales_order_number}
         onDone={onSaved('Receiving recorded.')}
       />
     ),
@@ -588,11 +594,13 @@ function ReceivingSection({
   unitId,
   canRecord,
   receiving,
+  defaultPoRef,
   onDone,
 }: {
   unitId: string
   canRecord: boolean
   receiving: Stage0Receiving | null
+  defaultPoRef?: string
   onDone: () => void
 }) {
   const [showModal, setShowModal] = useState(false)
@@ -627,6 +635,7 @@ function ReceivingSection({
         <ReceivingModal
           unitId={unitId}
           receiving={receiving}
+          defaultPoRef={defaultPoRef}
           onClose={() => setShowModal(false)}
           onSaved={() => {
             setShowModal(false)
@@ -641,15 +650,17 @@ function ReceivingSection({
 function ReceivingModal({
   unitId,
   receiving,
+  defaultPoRef,
   onClose,
   onSaved,
 }: {
   unitId: string
   receiving: Stage0Receiving | null
+  defaultPoRef?: string
   onClose: () => void
   onSaved: () => void
 }) {
-  const [waybill, setWaybill] = useState(receiving?.po_or_waybill_ref ?? '')
+  const [waybill, setWaybill] = useState(receiving?.po_or_waybill_ref ?? defaultPoRef ?? '')
   const [itemsCorrect, setItemsCorrect] = useState(receiving?.items_correct ?? true)
   const [notes, setNotes] = useState(receiving?.discrepancy_notes ?? '')
   const [submitting, setSubmitting] = useState(false)

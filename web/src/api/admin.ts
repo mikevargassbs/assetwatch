@@ -152,6 +152,52 @@ export function reactivateSiteLocation(id: number) {
   return apiFetch<void>(`/api/v1/site-locations/${id}/reactivate`, { method: 'POST' })
 }
 
+// ---- Items (master file) ----
+
+export interface Item {
+  id: number
+  make: string
+  model: string
+  description?: string
+  qty: number
+  sales_order_number?: string
+  active: boolean
+}
+
+export interface ItemInput {
+  make: string
+  model: string
+  description?: string
+  qty: number
+  sales_order_number?: string
+}
+
+export function listItems(includeInactive = false) {
+  return apiFetch<Item[]>(`/api/v1/items?include_inactive=${includeInactive}`)
+}
+
+export function createItem(input: ItemInput) {
+  return apiFetch<Item>('/api/v1/items', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateItem(id: number, input: ItemInput) {
+  return apiFetch<Item>(`/api/v1/items/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deactivateItem(id: number) {
+  return apiFetch<void>(`/api/v1/items/${id}`, { method: 'DELETE' })
+}
+
+export function reactivateItem(id: number) {
+  return apiFetch<void>(`/api/v1/items/${id}/reactivate`, { method: 'POST' })
+}
+
 // ---- Barcode label settings ----
 
 export interface BarcodeLabelSettings {

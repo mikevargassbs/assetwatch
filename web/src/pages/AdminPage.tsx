@@ -3,22 +3,27 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import {
   ALL_ROLES,
+  createItem,
   createMetaDataField,
   createSiteLocation,
   createUser,
+  deactivateItem,
   deactivateMetaDataField,
   deactivateSiteLocation,
   getBarcodeLabelSettings,
   listBarcodeLabelFields,
+  listItems,
   listMetaDataFields,
   listSiteLocations,
   listUsers,
   previewBarcodeLabel,
+  reactivateItem,
   reactivateMetaDataField,
   reactivateSiteLocation,
   setUserPassword,
   setUserRoles,
   updateBarcodeLabelSettings,
+  updateItem,
   updateMetaDataField,
   updateSiteLocation,
   updateUser,
@@ -26,6 +31,7 @@ import {
   type BarcodeLabelField,
   type BarcodeLabelSettings,
   type FieldDefinition,
+  type Item,
   type SiteLocation,
   type UserSummary,
 } from '../api/admin'
@@ -35,7 +41,7 @@ import { useConfirm } from '../components/ConfirmDialogProvider'
 import { useSnackbar } from '../components/SnackbarProvider'
 import { DataTable } from '../components/DataTable'
 
-const TABS = ['Users', 'Meta-Data Fields', 'Site Locations', 'Barcode Label', 'Retired Units', 'Data Management'] as const
+const TABS = ['Users', 'Meta-Data Fields', 'Items', 'Site Locations', 'Barcode Label', 'Retired Units', 'Data Management'] as const
 type Tab = (typeof TABS)[number]
 
 export function AdminPage() {
@@ -67,6 +73,7 @@ export function AdminPage() {
 
       {tab === 'Users' && <UsersTab />}
       {tab === 'Meta-Data Fields' && <MetaDataFieldsTab />}
+      {tab === 'Items' && <ItemsTab />}
       {tab === 'Site Locations' && <SiteLocationsTab />}
       {tab === 'Barcode Label' && <BarcodeLabelSettingsTab />}
       {tab === 'Retired Units' && <RetiredUnitsTab />}
@@ -680,6 +687,266 @@ export function CreateFieldModal({
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting || !label || !fieldKey}>
             {submitting ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function ItemsTab() {
+  const [items, setItems] = useState<Item[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showCreate, setShowCreate] = useState(false)
+  const [editingItem, setEditingItem] = useState<Item | null>(null)
+  const [query, setQuery] = useState('')
+  const confirm = useConfirm()
+  const showSnackbar = useSnackbar()
+
+  async function load(showLoading = false) {
+    if (showLoading) setLoading(true)
+    try {
+      setItems((await listItems(true)) ?? [])
+    } catch {
+      showSnackbar('Failed to load items.', 'error')
+    } finally {
+      if (showLoading) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function handleRemove(item: Item) {
+    const ok = await confirm({
+      title: `Remove "${item.make} ${item.model}"?`,
+      message: 'It will no longer appear in the item lookup on the New Hardware Unit form.',
+      confirmLabel: 'Remove',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await deactivateItem(item.id)
+      showSnackbar(`Removed item "${item.make} ${item.model}".`, 'success')
+      load()
+    } catch {
+      showSnackbar('Failed to remove item.', 'error')
+    }
+  }
+
+  async function handleReactivate(item: Item) {
+    try {
+      await reactivateItem(item.id)
+      showSnackbar(`Restored item "${item.make} ${item.model}".`, 'success')
+      load()
+    } catch {
+      showSnackbar('Failed to restore item.', 'error')
+    }
+  }
+
+  return (
+    <section className="detail-section">
+      <div className="section-toolbar">
+        <h2>Items</h2>
+        <div className="section-toolbar-actions">
+          <input
+            className="data-table-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by make, model, or SO#…"
+          />
+          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            + Add Item
+          </button>
+        </div>
+      </div>
+
+      {loading && <p className="board-empty">Loading…</p>}
+      {!loading && (
+        <DataTable
+          rows={items}
+          getRowKey={(item) => item.id}
+          rowClassName={(item) => (item.active ? undefined : 'admin-list-inactive')}
+          searchText={(item) => `${item.make} ${item.model} ${item.sales_order_number ?? ''}`}
+          query={query}
+          onQueryChange={setQuery}
+          hideSearchInput
+          emptyMessage="No items yet."
+          columns={[
+            { key: 'make', header: 'Make', render: (item) => item.make },
+            { key: 'model', header: 'Model', render: (item) => item.model },
+            { key: 'description', header: 'Description', render: (item) => item.description ?? '—' },
+            { key: 'qty', header: 'Qty', render: (item) => item.qty },
+            { key: 'sales_order_number', header: 'Sales Order #', render: (item) => item.sales_order_number ?? '—' },
+            { key: 'status', header: 'Status', render: (item) => (item.active ? 'Active' : 'Inactive') },
+            {
+              key: 'actions',
+              header: '',
+              render: (item) =>
+                item.active ? (
+                  <>
+                    <button type="button" className="link-button" onClick={() => setEditingItem(item)}>
+                      Edit
+                    </button>
+                    {' · '}
+                    <button type="button" className="link-button" onClick={() => handleRemove(item)}>
+                      Remove
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="link-button" onClick={() => handleReactivate(item)}>
+                    Restore
+                  </button>
+                ),
+            },
+          ]}
+        />
+      )}
+
+      {showCreate && (
+        <CreateItemModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false)
+            load()
+          }}
+        />
+      )}
+
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSaved={() => {
+            setEditingItem(null)
+            load()
+          }}
+        />
+      )}
+    </section>
+  )
+}
+
+function CreateItemModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [make, setMake] = useState('')
+  const [model, setModel] = useState('')
+  const [description, setDescription] = useState('')
+  const [qty, setQty] = useState('0')
+  const [salesOrderNumber, setSalesOrderNumber] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const showSnackbar = useSnackbar()
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!make || !model) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await createItem({
+        make,
+        model,
+        description: description || undefined,
+        qty: Number(qty) || 0,
+        sales_order_number: salesOrderNumber || undefined,
+      })
+      showSnackbar(`Added item "${make} ${model}".`, 'success')
+      onCreated()
+    } catch {
+      setError('Failed to add item.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay">
+      <form className="modal-card" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+          &times;
+        </button>
+        <h2>Add Item</h2>
+        <label htmlFor="new-item-make">Make</label>
+        <input id="new-item-make" value={make} onChange={(e) => setMake(e.target.value)} required />
+        <label htmlFor="new-item-model">Model</label>
+        <input id="new-item-model" value={model} onChange={(e) => setModel(e.target.value)} required />
+        <label htmlFor="new-item-description">Description</label>
+        <input id="new-item-description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        <label htmlFor="new-item-qty">Qty</label>
+        <input id="new-item-qty" type="number" min="0" value={qty} onChange={(e) => setQty(e.target.value)} />
+        <label htmlFor="new-item-so">Sales Order Number</label>
+        <input id="new-item-so" value={salesOrderNumber} onChange={(e) => setSalesOrderNumber(e.target.value)} />
+        {error && <div className="login-error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose} disabled={submitting}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={submitting || !make || !model}>
+            {submitting ? 'Adding…' : 'Add Item'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function EditItemModal({ item, onClose, onSaved }: { item: Item; onClose: () => void; onSaved: () => void }) {
+  const [make, setMake] = useState(item.make)
+  const [model, setModel] = useState(item.model)
+  const [description, setDescription] = useState(item.description ?? '')
+  const [qty, setQty] = useState(String(item.qty))
+  const [salesOrderNumber, setSalesOrderNumber] = useState(item.sales_order_number ?? '')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const showSnackbar = useSnackbar()
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      await updateItem(item.id, {
+        make,
+        model,
+        description: description || undefined,
+        qty: Number(qty) || 0,
+        sales_order_number: salesOrderNumber || undefined,
+      })
+      showSnackbar(`Updated "${make} ${model}".`, 'success')
+      onSaved()
+    } catch {
+      setError('Failed to update item.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay">
+      <form className="modal-card" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+          &times;
+        </button>
+        <h2>Edit Item</h2>
+        <label htmlFor="edit-item-make">Make</label>
+        <input id="edit-item-make" value={make} onChange={(e) => setMake(e.target.value)} required />
+        <label htmlFor="edit-item-model">Model</label>
+        <input id="edit-item-model" value={model} onChange={(e) => setModel(e.target.value)} required />
+        <label htmlFor="edit-item-description">Description</label>
+        <input id="edit-item-description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        <label htmlFor="edit-item-qty">Qty</label>
+        <input id="edit-item-qty" type="number" min="0" value={qty} onChange={(e) => setQty(e.target.value)} />
+        <label htmlFor="edit-item-so">Sales Order Number</label>
+        <input id="edit-item-so" value={salesOrderNumber} onChange={(e) => setSalesOrderNumber(e.target.value)} />
+        {error && <div className="login-error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose} disabled={submitting}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={submitting || !make || !model}>
+            {submitting ? 'Saving…' : 'Save'}
           </button>
         </div>
       </form>

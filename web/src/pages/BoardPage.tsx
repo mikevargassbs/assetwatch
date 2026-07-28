@@ -14,7 +14,7 @@ import {
 import { getUnitLogistics } from '../api/logistics'
 import { getInstallation } from '../api/installation'
 import { getAcceptance } from '../api/acceptance'
-import { listMetaDataFields, listSiteLocations, type FieldDefinition } from '../api/admin'
+import { listItems, listMetaDataFields, listSiteLocations, type FieldDefinition, type Item } from '../api/admin'
 import { BarcodeScannerModal } from '../components/BarcodeScanner'
 import { Combobox } from '../components/Combobox'
 import { DataTable } from '../components/DataTable'
@@ -124,6 +124,11 @@ function generateAlias(allocatedBranch: string, deviceModel: string, serialNumbe
     serialNumber.trim().slice(-4).toUpperCase(),
   ].filter(Boolean)
   return parts.join('-')
+}
+
+function formatItemLabel(item: Item): string {
+  const so = item.sales_order_number ? ` — SO ${item.sales_order_number}` : ''
+  return `${item.make} ${item.model}${so} (qty: ${item.qty})`
 }
 
 // Barcode scanners emit their input as keystrokes ending in Enter. In a form
@@ -522,6 +527,8 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [makes, setMakes] = useState<string[]>([])
   const [models, setModels] = useState<string[]>([])
   const [siteLocations, setSiteLocations] = useState<string[]>([])
+  const [items, setItems] = useState<Item[]>([])
+  const [itemQuery, setItemQuery] = useState('')
   const [generalFields, setGeneralFields] = useState<FieldDefinition[]>([])
   const [metaValues, setMetaValues] = useState<MetaValues>({})
   const [submitting, setSubmitting] = useState(false)
@@ -537,6 +544,7 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     listSiteLocations()
       .then((locations) => setSiteLocations(locations.map((l) => l.name)))
       .catch(() => setSiteLocations([]))
+    listItems().then(setItems).catch(() => setItems([]))
     listMetaDataFields('general')
       .then((fields) => {
         setGeneralFields(fields)
@@ -544,6 +552,19 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       })
       .catch(() => setGeneralFields([]))
   }, [])
+
+  const selectedItem = items.find((it) => formatItemLabel(it) === itemQuery) ?? null
+  const selectedItemId = selectedItem?.id
+
+  // Selecting an item from the Items master file auto-fills Device
+  // Make/Model — the unit stays linked to the item so its Sales Order
+  // Number can default the PO/Waybill Reference later, at Receiving.
+  useEffect(() => {
+    if (!selectedItem) return
+    setDeviceMake(selectedItem.make)
+    setDeviceModel(selectedItem.model)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItemId])
 
   // Keep an admin-defined "Axis Website" field filled in with a link to
   // Axis's product search for this make/model/part — as long as the user
@@ -572,6 +593,7 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         device_make: deviceMake || undefined,
         device_model: deviceModel || undefined,
         part_number: partNumber || undefined,
+        item_id: selectedItem?.id,
         barcode: barcode || undefined,
         allocated_branch: allocatedBranch || undefined,
         meta_data: Object.keys(metaValues).length > 0 ? metaValues : undefined,
@@ -579,7 +601,11 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       onCreated()
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('409')) {
-        setError('That serial number is already in use.')
+        setError(
+          err.message.includes('quantity remaining')
+            ? 'That item has no quantity remaining in stock.'
+            : 'That serial number is already in use.',
+        )
       } else {
         setError('Failed to create unit. Check that your account has the Encoder or PM/PC role.')
       }
@@ -587,6 +613,8 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       setSubmitting(false)
     }
   }
+
+  const itemOutOfStock = !!selectedItem && selectedItem.qty <= 0
 
   return (
     <div className="modal-overlay">
@@ -609,23 +637,26 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
         <div className="modal-body">
           <div className="form-section">
-            <h3 className="form-section-title">Identity</h3>
-            <label htmlFor="serial">Serial Number</label>
-            <div className="input-with-scan">
-              <input
-                id="serial"
-                value={serialNumber}
-                onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
-                required
-              />
-              <button type="button" className="btn" onClick={() => setScanTarget('serial')}>
-                📷 Scan
-              </button>
-            </div>
-          </div>
-
-          <div className="form-section">
             <h3 className="form-section-title">Device</h3>
+            <label htmlFor="item-lookup">Item (optional)</label>
+            <Combobox
+              id="item-lookup"
+              value={itemQuery}
+              onChange={setItemQuery}
+              options={items.map(formatItemLabel)}
+              placeholder="Look up an item to auto-fill Make/Model…"
+            />
+            <p className="modal-subtitle">
+              Selecting an item from the Items master file fills in Make/Model below and links this unit to that
+              item's Sales Order Number, used as the default PO/Waybill Reference at Receiving.
+            </p>
+            {selectedItem && (
+              <p className={itemOutOfStock ? 'login-error' : 'modal-subtitle'}>
+                {itemOutOfStock
+                  ? 'This item has no quantity remaining in stock — pick a different item or update its qty in Admin → Items.'
+                  : `${selectedItem.qty} in stock.`}
+              </p>
+            )}
             <div className="modal-field-row">
               <div>
                 <label htmlFor="make">Device Make</label>
@@ -664,6 +695,22 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           </div>
 
           <div className="form-section">
+            <h3 className="form-section-title">Identity</h3>
+            <label htmlFor="serial">Serial Number</label>
+            <div className="input-with-scan">
+              <input
+                id="serial"
+                value={serialNumber}
+                onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
+                required
+              />
+              <button type="button" className="btn" onClick={() => setScanTarget('serial')}>
+                📷 Scan
+              </button>
+            </div>
+          </div>
+
+          <div className="form-section">
             <h3 className="form-section-title">Assignment</h3>
             <label htmlFor="allocated-branch">Allocated Branch / Site</label>
             <Combobox
@@ -684,7 +731,7 @@ function NewUnitModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button type="button" className="btn" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting || !serialNumber}>
+          <button type="submit" className="btn btn-primary" disabled={submitting || !serialNumber || itemOutOfStock}>
             {submitting ? 'Creating…' : 'Create'}
           </button>
         </div>

@@ -54,6 +54,7 @@ type createUnitRequest struct {
 	DeviceMake      *string        `json:"device_make"`
 	DeviceModel     *string        `json:"device_model"`
 	PartNumber      *string        `json:"part_number"`
+	ItemID          *int           `json:"item_id"`
 	Barcode         *string        `json:"barcode"`
 	AllocatedBranch *string        `json:"allocated_branch"`
 	MetaData        map[string]any `json:"meta_data"`
@@ -75,12 +76,16 @@ func (h *Handlers) CreateUnit(w http.ResponseWriter, r *http.Request) {
 	unit, err := h.service.CreateUnit(r.Context(), actor, CreateUnitInput{
 		Alias: req.Alias, SerialNumber: req.SerialNumber,
 		DeviceMake: req.DeviceMake, DeviceModel: req.DeviceModel,
-		PartNumber: req.PartNumber, Barcode: req.Barcode,
+		PartNumber: req.PartNumber, ItemID: req.ItemID, Barcode: req.Barcode,
 		AllocatedBranch: req.AllocatedBranch, MetaData: req.MetaData,
 	})
 	if err != nil {
 		if errors.Is(err, ErrSerialNumberInUse) {
 			writeErr(w, http.StatusConflict, "serial number is already in use")
+			return
+		}
+		if errors.Is(err, ErrInsufficientItemQty) {
+			writeErr(w, http.StatusConflict, "selected item has no quantity remaining")
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "failed to create unit")

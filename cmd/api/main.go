@@ -21,6 +21,7 @@ import (
 	"sbs-bsp-cctv/internal/defective"
 	"sbs-bsp-cctv/internal/hardware"
 	"sbs-bsp-cctv/internal/installation"
+	"sbs-bsp-cctv/internal/items"
 	"sbs-bsp-cctv/internal/logistics"
 	"sbs-bsp-cctv/internal/mailer"
 	"sbs-bsp-cctv/internal/metadata"
@@ -80,6 +81,9 @@ func main() {
 	siteLocationSvc := sitelocation.NewService(pool)
 	siteLocationHandlers := sitelocation.NewHandlers(siteLocationSvc)
 
+	itemsSvc := items.NewService(pool)
+	itemsHandlers := items.NewHandlers(itemsSvc)
+
 	dataMgmtSvc := datamanagement.NewService(pool, auditSvc)
 	dataMgmtHandlers := datamanagement.NewHandlers(dataMgmtSvc)
 
@@ -135,6 +139,10 @@ func main() {
 				adminOnly.Put("/site-locations/{id}", siteLocationHandlers.Update)
 				adminOnly.Delete("/site-locations/{id}", siteLocationHandlers.Deactivate)
 				adminOnly.Post("/site-locations/{id}/reactivate", siteLocationHandlers.Reactivate)
+				adminOnly.Post("/items", itemsHandlers.Create)
+				adminOnly.Put("/items/{id}", itemsHandlers.Update)
+				adminOnly.Delete("/items/{id}", itemsHandlers.Deactivate)
+				adminOnly.Post("/items/{id}/reactivate", itemsHandlers.Reactivate)
 				adminOnly.Post("/hardware-units/{id}/board-column", hardwareHandlers.MoveBoardColumn)
 				adminOnly.Delete("/hardware-units/{id}", hardwareHandlers.DeleteUnit)
 				adminOnly.Post("/hardware-units/{id}/restore", hardwareHandlers.RestoreUnit)
@@ -150,6 +158,7 @@ func main() {
 			protected.Get("/hardware-units/device-makes", hardwareHandlers.ListDeviceMakes)
 			protected.Get("/hardware-units/device-models", hardwareHandlers.ListDeviceModels)
 			protected.Get("/site-locations", siteLocationHandlers.List)
+			protected.Get("/items", itemsHandlers.List)
 			protected.Get("/hardware-units", hardwareHandlers.ListUnits)
 			protected.Get("/hardware-units/{id}", hardwareHandlers.GetUnit)
 			protected.Post("/hardware-units/{id}/board-column/sync", hardwareHandlers.SyncBoardColumn)

@@ -20,6 +20,7 @@ const pgUniqueViolation = "23505"
 var (
 	ErrNotFound                 = errors.New("not found")
 	ErrSerialNumberInUse        = errors.New("serial number is already in use")
+	ErrInsufficientItemQty      = errors.New("selected item has no quantity remaining")
 	ErrClientIPInUse            = errors.New("client IP address is already in use at this site")
 	ErrNotRetired               = errors.New("unit must be retired before it can be permanently deleted")
 	ErrInvalidBoardColumn       = errors.New("invalid board column")
@@ -71,13 +72,13 @@ func NewService(pool *pgxpool.Pool, auditSvc *audit.Service, appSettingsSvc *app
 
 // ---- hardware_units ----
 
-const unitColumns = `id, barcode, alias, serial_number, device_make, device_model, part_number, status, current_stage, board_column, is_exception, allocated_branch, meta_data, created_at, updated_at`
+const unitColumns = `id, barcode, alias, serial_number, device_make, device_model, part_number, item_id, status, current_stage, board_column, is_exception, allocated_branch, meta_data, created_at, updated_at`
 
 func scanUnit(row pgx.Row) (*Unit, error) {
 	var u Unit
 	var metaRaw []byte
 	err := row.Scan(
-		&u.ID, &u.Barcode, &u.Alias, &u.SerialNumber, &u.DeviceMake, &u.DeviceModel, &u.PartNumber,
+		&u.ID, &u.Barcode, &u.Alias, &u.SerialNumber, &u.DeviceMake, &u.DeviceModel, &u.PartNumber, &u.ItemID,
 		&u.Status, &u.CurrentStage, &u.BoardColumn, &u.IsException, &u.AllocatedBranch,
 		&metaRaw, &u.CreatedAt, &u.UpdatedAt,
 	)
@@ -95,7 +96,7 @@ func scanUnitWithSignoff(row pgx.Row) (*Unit, error) {
 	var u Unit
 	var metaRaw []byte
 	err := row.Scan(
-		&u.ID, &u.Barcode, &u.Alias, &u.SerialNumber, &u.DeviceMake, &u.DeviceModel, &u.PartNumber,
+		&u.ID, &u.Barcode, &u.Alias, &u.SerialNumber, &u.DeviceMake, &u.DeviceModel, &u.PartNumber, &u.ItemID,
 		&u.Status, &u.CurrentStage, &u.BoardColumn, &u.IsException, &u.AllocatedBranch,
 		&metaRaw, &u.CreatedAt, &u.UpdatedAt, &u.Encoded, &u.Configured, &u.QC,
 	)
@@ -115,6 +116,11 @@ type CreateUnitInput struct {
 	DeviceMake   *string
 	DeviceModel  *string
 	PartNumber   *string
+	// ItemID links the unit to the Items master file entry it was created
+	// from, if any — device make/model are copied onto the unit at create
+	// time, and the item's sales order number is later used as the default
+	// PO/Waybill reference at Receiving.
+	ItemID *int
 	// Barcode, if non-empty, is used as-is instead of generating one — for
 	// units that arrive with a pre-printed sticker already on them.
 	Barcode *string
@@ -141,17 +147,40 @@ func (s *Service) CreateUnit(ctx context.Context, actor uuid.UUID, in CreateUnit
 		}
 	}
 
-	u, err := scanUnit(s.pool.QueryRow(ctx, `
-		INSERT INTO hardware_units (barcode, alias, serial_number, device_make, device_model, part_number, allocated_branch, meta_data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Claim one unit of stock from the linked item, if any, in the same
+	// transaction as the unit insert — so two concurrent creates against the
+	// last unit of stock can't both succeed.
+	if in.ItemID != nil {
+		tag, err := tx.Exec(ctx, `UPDATE items SET qty = qty - 1 WHERE id = $1 AND qty > 0`, *in.ItemID)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, ErrInsufficientItemQty
+		}
+	}
+
+	u, err := scanUnit(tx.QueryRow(ctx, `
+		INSERT INTO hardware_units (barcode, alias, serial_number, device_make, device_model, part_number, item_id, allocated_branch, meta_data)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING `+unitColumns,
-		code, in.Alias, in.SerialNumber, in.DeviceMake, in.DeviceModel, in.PartNumber, in.AllocatedBranch, metaRaw,
+		code, in.Alias, in.SerialNumber, in.DeviceMake, in.DeviceModel, in.PartNumber, in.ItemID, in.AllocatedBranch, metaRaw,
 	))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation && pgErr.ConstraintName == "idx_hardware_units_serial_number" {
 			return nil, ErrSerialNumberInUse
 		}
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
@@ -256,7 +285,7 @@ func (s *Service) FindByBarcodeOrSerial(ctx context.Context, identifier string) 
 
 func (s *Service) ListUnits(ctx context.Context, includeArchived bool) ([]Unit, error) {
 	query := `SELECT hu.id, hu.barcode, hu.alias, hu.serial_number, hu.device_make, hu.device_model,
-			hu.part_number, hu.status, hu.current_stage, hu.board_column, hu.is_exception,
+			hu.part_number, hu.item_id, hu.status, hu.current_stage, hu.board_column, hu.is_exception,
 			hu.allocated_branch, hu.meta_data, hu.created_at, hu.updated_at,
 			dc.encoded_by IS NOT NULL, dc.configured_by IS NOT NULL, dc.qc_by IS NOT NULL
 		FROM hardware_units hu

@@ -95,6 +95,19 @@ func (s *Service) WipeAll(ctx context.Context, actor uuid.UUID, ipAddress string
 	}
 	defer tx.Rollback(ctx)
 
+	// Wiping hardware_units deletes the record that qty was ever consumed
+	// for, so give each linked item's qty back before the truncate removes
+	// the evidence of how many units to restore.
+	if _, err := tx.Exec(ctx, `
+		UPDATE items SET qty = qty + consumed.count
+		FROM (
+			SELECT item_id, count(*) AS count FROM hardware_units WHERE item_id IS NOT NULL GROUP BY item_id
+		) AS consumed
+		WHERE items.id = consumed.item_id
+	`); err != nil {
+		return err
+	}
+
 	query := "TRUNCATE TABLE " + strings.Join(transactionTables, ", ") + " RESTART IDENTITY CASCADE"
 	if _, err := tx.Exec(ctx, query); err != nil {
 		return err

@@ -14,6 +14,7 @@ type Unit struct {
 	DeviceMake      *string        `json:"device_make,omitempty"`
 	DeviceModel     *string        `json:"device_model,omitempty"`
 	PartNumber      *string        `json:"part_number,omitempty"`
+	ItemID          *int           `json:"item_id,omitempty"`
 	Status          string         `json:"status"`
 	CurrentStage    string         `json:"current_stage"`
 	BoardColumn     string         `json:"board_column"`
