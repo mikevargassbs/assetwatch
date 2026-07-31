@@ -92,6 +92,10 @@ type UnitInfoSheet struct {
 	// definitions with their saved value, pre-formatted for display —
 	// only populated when HasDeviceConfig.
 	AxisSettings []AxisSettingField
+	// Accessories holds the fixed accessory fields (mic/IO settings) saved
+	// alongside Axis Settings in the same Stage 1-A meta_data blob — nil if
+	// none of those fields were ever filled in.
+	Accessories *AccessoriesInfo
 
 	HasFirmwareConfig   bool
 	FirmwareUpdated     *bool
@@ -143,6 +147,17 @@ type UnitInfoSheet struct {
 	// definitions with their saved value from hardware_units.meta_data —
 	// what the "Attributes" tab on the unit detail page edits.
 	Attributes []AxisSettingField
+
+	// Photos are the installation photos uploaded as proof of installation,
+	// printed on their own page(s) at the end of the sheet when present.
+	Photos []UnitPhoto
+}
+
+// UnitPhoto is one uploaded installation photo, identified by its stored
+// file path so the PDF renderer can read it straight off local disk.
+type UnitPhoto struct {
+	FilePath   string
+	UploadedAt time.Time
 }
 
 // AxisSettingField is one Stage 1-A dynamic field definition paired with its
@@ -150,6 +165,16 @@ type UnitInfoSheet struct {
 type AxisSettingField struct {
 	Label string
 	Value string
+}
+
+// AccessoriesInfo is the fixed accessory (mic/IO) configuration captured on
+// the Pre-Deployment Config & QC tab's "Accessories" section.
+type AccessoriesInfo struct {
+	Type                 *string
+	InputType            *string
+	Model                *string
+	PowerType            *string
+	AutomaticGainControl *bool
 }
 
 type PackingListEntry struct {

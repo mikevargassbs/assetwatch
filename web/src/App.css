@@ -564,6 +564,24 @@
   flex: 0 1 auto;
 }
 
+.board-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.board-filter-select {
+  min-width: 150px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
 .view-toggle {
   display: flex;
   border: 1px solid var(--border);
@@ -2023,6 +2041,11 @@
   align-items: center;
   gap: 12px;
   font-size: 13px;
+}
+
+.data-table-row-count {
+  color: var(--text-muted, #888);
+  margin-right: auto;
 }
 
 .data-table-row-clickable {

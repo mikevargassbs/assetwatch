@@ -781,6 +781,20 @@ function formatNumericInput(raw: string): string {
   return raw.replace(/[^0-9]/g, '')
 }
 
+function isValidIPv4(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  const parts = trimmed.split('.')
+  if (parts.length !== 4) return false
+  return parts.every((part) => /^[0-9]{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255)
+}
+
+function isValidMACAddress(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i.test(trimmed)
+}
+
 const STAGE1A_FIELD_FORMATTERS: Record<string, (raw: string, isDeleting: boolean) => string> = {
   client_ip_address: formatIPInput,
   dns_server_1: formatIPInput,
@@ -816,6 +830,13 @@ function Stage1ASection({
 }) {
   const [form, setForm] = useState<Record<string, string>>({})
   const [meta, setMeta] = useState<MetaValues>({})
+  const [accessories, setAccessories] = useState({
+    type: '',
+    input_type: '',
+    model: '',
+    power_type: '',
+    automatic_gain_control: false,
+  })
   const [identityForm, setIdentityForm] = useState({ alias: '', part_number: '', barcode: '', allocated_branch: '' })
   const [siteLocations, setSiteLocations] = useState<SiteLocation[]>([])
   const [networkOptions, setNetworkOptions] = useState<Record<string, string[]>>({})
@@ -879,6 +900,13 @@ function Stage1ASection({
       default_password: stage?.default_password ?? '',
     })
     setMeta(defaultMetaValues(fields, stage?.meta_data))
+    setAccessories({
+      type: (stage?.meta_data?.accessories_type as string) ?? '',
+      input_type: (stage?.meta_data?.accessories_input_type as string) ?? '',
+      model: (stage?.meta_data?.accessories_model as string) ?? '',
+      power_type: (stage?.meta_data?.accessories_power_type as string) ?? '',
+      automatic_gain_control: Boolean(stage?.meta_data?.accessories_automatic_gain_control),
+    })
   }, [stage, fields])
 
   useEffect(() => {
@@ -916,10 +944,34 @@ function Stage1ASection({
     setSubmitting(true)
     setIdentityError(null)
     try {
+      if (!isValidIPv4(form.client_ip_address ?? '')) {
+        setIdentityError('Client IP Address must be a valid IPv4 address.')
+        return
+      }
+      if (!isValidIPv4(form.dns_server_1 ?? '')) {
+        setIdentityError('DNS Server 1 must be a valid IPv4 address.')
+        return
+      }
+      if (!isValidIPv4(form.dns_server_2 ?? '')) {
+        setIdentityError('DNS Server 2 must be a valid IPv4 address.')
+        return
+      }
+      if (!isValidMACAddress(form.mac_address ?? '')) {
+        setIdentityError('MAC Address must be a complete MAC address in the format AA:BB:CC:DD:EE:FF.')
+        return
+      }
+
       await upsertStage1A(unitId, {
         ...form,
         frequency_hz: form.frequency_hz ? Number(form.frequency_hz) : undefined,
-        meta_data: meta,
+        meta_data: {
+          ...meta,
+          accessories_type: accessories.type,
+          accessories_input_type: accessories.input_type,
+          accessories_model: accessories.model,
+          accessories_power_type: accessories.power_type,
+          accessories_automatic_gain_control: accessories.automatic_gain_control,
+        },
       })
       await updateUnitIdentity(unitId, {
         alias: identityForm.alias || undefined,
@@ -937,7 +989,7 @@ function Stage1ASection({
       } else if (err instanceof Error && err.message.startsWith('409')) {
         setIdentityError('That serial number is already in use.')
       } else {
-        showSnackbar('Failed to save configuration.', 'error')
+        showSnackbar(`Failed to save configuration: ${err instanceof Error ? err.message : String(err)}`, 'error')
       }
     } finally {
       setSubmitting(false)
@@ -1053,6 +1105,65 @@ function Stage1ASection({
                 </div>
               </div>
             ))}
+
+            <h3 className="dynamic-fields-heading">Accessories</h3>
+            <div className="detail-form-grid">
+              <div className="form-field">
+                <label>Accessories Type</label>
+                <select
+                  value={accessories.type}
+                  onChange={(e) => setAccessories({ ...accessories, type: e.target.value })}
+                >
+                  <option value="">Select…</option>
+                  <option value="input">Input</option>
+                  <option value="output">Output</option>
+                </select>
+              </div>
+              <div className="form-field">
+                <label>Input Type</label>
+                <input
+                  value={accessories.input_type}
+                  list="accessories-input-type-options"
+                  onChange={(e) => setAccessories({ ...accessories, input_type: e.target.value })}
+                />
+                <datalist id="accessories-input-type-options">
+                  <option value="Microphone" />
+                </datalist>
+              </div>
+              <div className="form-field">
+                <label>Model</label>
+                <input
+                  value={accessories.model}
+                  list="accessories-model-options"
+                  onChange={(e) => setAccessories({ ...accessories, model: e.target.value })}
+                />
+                <datalist id="accessories-model-options">
+                  <option value="Generic" />
+                </datalist>
+              </div>
+              <div className="form-field">
+                <label>Power Type</label>
+                <input
+                  value={accessories.power_type}
+                  list="accessories-power-type-options"
+                  onChange={(e) => setAccessories({ ...accessories, power_type: e.target.value })}
+                />
+                <datalist id="accessories-power-type-options">
+                  <option value="5V" />
+                  <option value="12V" />
+                  <option value="24V" />
+                  <option value="PoE" />
+                </datalist>
+              </div>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={accessories.automatic_gain_control}
+                  onChange={(e) => setAccessories({ ...accessories, automatic_gain_control: e.target.checked })}
+                />
+                Automatic Gain Control
+              </label>
+            </div>
 
             <DynamicFields fields={fields} values={meta} onChange={setMeta} heading="Axis Settings" uppercaseText />
 

@@ -1,4 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { listSiteLocations, type SiteLocation } from '../api/admin'
+import { listDeviceModels } from '../api/hardware'
+import { DataTable, type DataTableColumn } from '../components/DataTable'
 import {
   defectsReportExportUrl,
   downloadAuthenticated,
@@ -28,39 +31,31 @@ export function ReportsPage() {
   )
 }
 
+const HARDWARE_SUMMARY_COLUMNS: DataTableColumn<HardwareSummaryRow>[] = [
+  { key: 'barcode', header: 'Barcode', render: (r) => r.barcode },
+  { key: 'status', header: 'Status', render: (r) => r.status },
+  { key: 'stage', header: 'Stage', render: (r) => r.board_column },
+  { key: 'site', header: 'Site', render: (r) => r.site_name ?? r.allocated_branch ?? '—' },
+  { key: 'device_model', header: 'Device Model', render: (r) => r.device_model ?? '—' },
+  { key: 'waybill', header: 'Waybill', render: (r) => r.waybill_number ?? '—' },
+  { key: 'defect', header: 'Defect', render: (r) => r.defect_type ?? '—' },
+]
+
 function HardwareSummaryTable({ rows }: { rows: HardwareSummaryRow[] }) {
-  if (rows.length === 0) {
-    return <p className="board-empty">No matching hardware units.</p>
-  }
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table className="report-table">
-        <thead>
-          <tr>
-            <th>Barcode</th>
-            <th>Status</th>
-            <th>Stage</th>
-            <th>Site</th>
-            <th>Device Model</th>
-            <th>Waybill</th>
-            <th>Defect</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.hardware_unit_id} className={r.is_exception ? 'report-row-exception' : ''}>
-              <td>{r.barcode}</td>
-              <td>{r.status}</td>
-              <td>{r.board_column}</td>
-              <td>{r.site_name ?? '—'}</td>
-              <td>{r.device_model ?? '—'}</td>
-              <td>{r.waybill_number ?? '—'}</td>
-              <td>{r.defect_type ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      columns={HARDWARE_SUMMARY_COLUMNS}
+      rows={rows}
+      getRowKey={(r) => r.hardware_unit_id}
+      rowClassName={(r) => (r.is_exception ? 'report-row-exception' : undefined)}
+      searchText={(r) =>
+        [r.barcode, r.status, r.board_column, r.site_name, r.allocated_branch, r.device_model, r.waybill_number, r.defect_type]
+          .filter(Boolean)
+          .join(' ')
+      }
+      searchPlaceholder="Search hardware…"
+      emptyMessage="No matching hardware units."
+    />
   )
 }
 
@@ -75,6 +70,14 @@ function FilterForm({
   onSubmit: (e: FormEvent) => void
   submitting: boolean
 }) {
+  const [siteLocations, setSiteLocations] = useState<SiteLocation[]>([])
+  const [deviceModels, setDeviceModels] = useState<string[]>([])
+
+  useEffect(() => {
+    listSiteLocations().then(setSiteLocations).catch(() => setSiteLocations([]))
+    listDeviceModels().then(setDeviceModels).catch(() => setDeviceModels([]))
+  }, [])
+
   return (
     <form onSubmit={onSubmit} className="report-filter-form">
       <select value={filters.stage ?? ''} onChange={(e) => setFilters({ ...filters, stage: e.target.value })}>
@@ -84,16 +87,28 @@ function FilterForm({
           </option>
         ))}
       </select>
-      <input
-        placeholder="Site name"
+      <select
         value={filters.site_name ?? ''}
         onChange={(e) => setFilters({ ...filters, site_name: e.target.value })}
-      />
-      <input
-        placeholder="Device model"
+      >
+        <option value="">All sites</option>
+        {siteLocations.map((s) => (
+          <option key={s.id} value={s.name}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+      <select
         value={filters.device_model ?? ''}
         onChange={(e) => setFilters({ ...filters, device_model: e.target.value })}
-      />
+      >
+        <option value="">All device models</option>
+        {deviceModels.map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
       <input
         type="date"
         value={filters.date_from ?? ''}
@@ -186,6 +201,11 @@ function DefectsReportSection() {
 
 function PackingListSection() {
   const [siteName, setSiteName] = useState('')
+  const [siteLocations, setSiteLocations] = useState<SiteLocation[]>([])
+
+  useEffect(() => {
+    listSiteLocations().then(setSiteLocations).catch(() => setSiteLocations([]))
+  }, [])
 
   function handlePrint(e: FormEvent) {
     e.preventDefault()
@@ -197,7 +217,14 @@ function PackingListSection() {
     <section className="detail-section">
       <h2>Packing List Report to Each Site</h2>
       <form onSubmit={handlePrint} className="report-filter-form">
-        <input placeholder="Site name" value={siteName} onChange={(e) => setSiteName(e.target.value)} required />
+        <select value={siteName} onChange={(e) => setSiteName(e.target.value)} required>
+          <option value="">Select a site</option>
+          {siteLocations.map((s) => (
+            <option key={s.id} value={s.name}>
+              {s.name}
+            </option>
+          ))}
+        </select>
         <button type="submit" disabled={!siteName}>
           Print packing list
         </button>

@@ -47,7 +47,9 @@ func buildWhere(f HardwareFilters) (string, []any) {
 		add("status = $%d", *f.Status)
 	}
 	if f.SiteName != nil && *f.SiteName != "" {
-		add("site_name = $%d", *f.SiteName)
+		args = append(args, *f.SiteName)
+		siteArg := len(args)
+		clauses = append(clauses, fmt.Sprintf("(site_name = $%d OR (site_name IS NULL AND allocated_branch = $%d))", siteArg, siteArg))
 	}
 	if f.DeviceModel != nil && *f.DeviceModel != "" {
 		add("device_model = $%d", *f.DeviceModel)
@@ -186,6 +188,10 @@ func (s *Service) GetUnitInfoSheet(ctx context.Context, unitID string) (*UnitInf
 		if err != nil {
 			return nil, err
 		}
+		sheet.Accessories, err = accessoriesFromMeta(metaRaw)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	sheet.Attributes, err = s.dynamicFieldsForStage(ctx, "general", unitMetaRaw)
@@ -193,7 +199,34 @@ func (s *Service) GetUnitInfoSheet(ctx context.Context, unitID string) (*UnitInf
 		return nil, err
 	}
 
+	sheet.Photos, err = s.listUnitPhotos(ctx, unitID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &sheet, nil
+}
+
+// listUnitPhotos returns the installation photos uploaded for a unit, oldest
+// first, for the info sheet's "Uploaded Images" page.
+func (s *Service) listUnitPhotos(ctx context.Context, unitID string) ([]UnitPhoto, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT file_path, uploaded_at FROM installation_photos
+		WHERE hardware_unit_id = $1 ORDER BY uploaded_at ASC`, unitID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	photos := []UnitPhoto{}
+	for rows.Next() {
+		var p UnitPhoto
+		if err := rows.Scan(&p.FilePath, &p.UploadedAt); err != nil {
+			return nil, err
+		}
+		photos = append(photos, p)
+	}
+	return photos, rows.Err()
 }
 
 // dynamicFieldsForStage pairs every active custom field definition for the
@@ -228,6 +261,41 @@ func (s *Service) dynamicFieldsForStage(ctx context.Context, stage string, metaR
 		fields = append(fields, AxisSettingField{Label: label, Value: formatMetaValue(meta[key], dataType)})
 	}
 	return fields, rows.Err()
+}
+
+// accessoriesFromMeta pulls the fixed "Accessories" fields (mic/IO settings)
+// out of Stage 1-A's meta_data blob — unlike AxisSettings, these aren't
+// admin-defined custom_field_definitions, just fixed keys the frontend saves
+// alongside them in the same JSONB column. Returns nil if none were ever set.
+func accessoriesFromMeta(metaRaw []byte) (*AccessoriesInfo, error) {
+	var meta map[string]any
+	if len(metaRaw) > 0 {
+		if err := json.Unmarshal(metaRaw, &meta); err != nil {
+			return nil, err
+		}
+	}
+
+	getStr := func(key string) *string {
+		if v, ok := meta[key].(string); ok && v != "" {
+			return &v
+		}
+		return nil
+	}
+
+	acc := AccessoriesInfo{
+		Type:      getStr("accessories_type"),
+		InputType: getStr("accessories_input_type"),
+		Model:     getStr("accessories_model"),
+		PowerType: getStr("accessories_power_type"),
+	}
+	if v, ok := meta["accessories_automatic_gain_control"].(bool); ok {
+		acc.AutomaticGainControl = &v
+	}
+
+	if acc.Type == nil && acc.InputType == nil && acc.Model == nil && acc.PowerType == nil && acc.AutomaticGainControl == nil {
+		return nil, nil
+	}
+	return &acc, nil
 }
 
 func formatMetaValue(v any, dataType string) string {

@@ -106,22 +106,45 @@ export function DataTable<T>({
         </div>
       )}
 
-      {pageCount > 1 && (
+      {filtered.length > 0 && (
         <div className="data-table-pagination">
-          <button type="button" className="btn" disabled={clampedPage <= 1} onClick={() => setPage(clampedPage - 1)}>
-            Previous
-          </button>
-          <span>
-            Page {clampedPage} of {pageCount}
+          <span className="data-table-row-count">
+            {filtered.length} {filtered.length === 1 ? 'row' : 'rows'}
           </span>
-          <button
-            type="button"
-            className="btn"
-            disabled={clampedPage >= pageCount}
-            onClick={() => setPage(clampedPage + 1)}
-          >
-            Next
-          </button>
+          {pageCount > 1 && (
+            <>
+              <button type="button" className="btn" disabled={clampedPage <= 1} onClick={() => setPage(1)}>
+                First
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={clampedPage <= 1}
+                onClick={() => setPage(clampedPage - 1)}
+              >
+                Previous
+              </button>
+              <span>
+                Page {clampedPage} of {pageCount}
+              </span>
+              <button
+                type="button"
+                className="btn"
+                disabled={clampedPage >= pageCount}
+                onClick={() => setPage(clampedPage + 1)}
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={clampedPage >= pageCount}
+                onClick={() => setPage(pageCount)}
+              >
+                Last
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

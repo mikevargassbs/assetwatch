@@ -71,7 +71,7 @@ cd web; npm install; npm run build; cd ..
 
 # 2. Build both binaries for Windows, stamping version info into the binary:
 $env:GOOS = "windows"; $env:GOARCH = "amd64"; $env:CGO_ENABLED = "0"
-$version = "1.0.7"                                  # bump per release
+$version = "1.0.9"                                  # bump per release
 $commit = (git rev-parse --short HEAD)
 $buildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $versionPkg = "sbs-bsp-cctv/internal/version"

@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image/png"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -389,6 +391,17 @@ func UnitInfoSheetToPDF(sheet *UnitInfoSheet) ([]byte, error) {
 		grid([][2]string{{"Status", "Not yet configured"}})
 	}
 
+	if sheet.HasDeviceConfig && sheet.Accessories != nil {
+		section("Accessories")
+		grid([][2]string{
+			{"Accessories Type", dash(sheet.Accessories.Type)},
+			{"Input Type", dash(sheet.Accessories.InputType)},
+			{"Model", dash(sheet.Accessories.Model)},
+			{"Power Type", dash(sheet.Accessories.PowerType)},
+			{"Automatic Gain Control", dashBool(sheet.Accessories.AutomaticGainControl)},
+		})
+	}
+
 	if sheet.HasDeviceConfig && len(sheet.AxisSettings) > 0 {
 		section("Axis Settings")
 		pairs := make([][2]string, len(sheet.AxisSettings))
@@ -558,11 +571,84 @@ func UnitInfoSheetToPDF(sheet *UnitInfoSheet) ([]byte, error) {
 		pdf.MultiCell(0, 4.5, dash(sheet.DefectDescription), "", "L", false)
 	}
 
+	if len(sheet.Photos) > 0 {
+		drawPhotoPages(pdf, sheet.Photos, margin)
+	}
+
 	var out bytes.Buffer
 	if err := pdf.Output(&out); err != nil {
 		return nil, fmt.Errorf("render unit info sheet pdf: %w", err)
 	}
 	return out.Bytes(), nil
+}
+
+// embeddableImageExts are the raster formats fpdf can decode and place
+// directly (see go-pdf/fpdf's RegisterImageOptions). Installation photos may
+// also be uploaded as webp/heic (see installation.allowedPhotoExtensions),
+// which aren't embeddable — those get a text placeholder instead so a single
+// unsupported photo doesn't set fpdf's sticky internal error and blank out
+// the rest of the document.
+var embeddableImageExts = map[string]string{
+	".jpg": "JPG", ".jpeg": "JPG", ".png": "PNG", ".gif": "GIF",
+}
+
+// drawPhotoPages appends one page per uploaded installation photo — the
+// "Uploaded Images / Proof of Installation" section — each with the photo
+// scaled to fit the page and a caption noting its upload time. Called only
+// once fpdf's own error state is known clean, so a missing/corrupt file is
+// checked for up front rather than let RegisterImageOptions set pdf.err.
+func drawPhotoPages(pdf *fpdf.Fpdf, photos []UnitPhoto, margin float64) {
+	pageW, pageH := pdf.GetPageSize()
+	usableW := pageW - 2*margin
+
+	for i, photo := range photos {
+		pdf.AddPage()
+		title := fmt.Sprintf("Uploaded Images / Proof of Installation (%d of %d)", i+1, len(photos))
+		if err := pdfbrand.DrawHeader(pdf, title); err != nil {
+			continue
+		}
+
+		top := pdf.GetY() + 2
+		const captionH = 5.0
+		maxH := pageH - top - margin - captionH
+
+		imgType, ok := embeddableImageExts[strings.ToLower(filepath.Ext(photo.FilePath))]
+		if _, statErr := os.Stat(photo.FilePath); statErr != nil {
+			ok = false
+		}
+
+		drawH := 0.0
+		if ok {
+			info := pdf.RegisterImageOptions(photo.FilePath, fpdf.ImageOptions{ImageType: imgType, ReadDpi: true})
+			if pdf.Err() {
+				pdf.ClearError()
+				ok = false
+			} else if info != nil {
+				w, h := info.Extent()
+				if w > 0 && h > 0 {
+					scale := usableW / w
+					if h*scale > maxH {
+						scale = maxH / h
+					}
+					var drawW float64
+					drawW, drawH = w*scale, h*scale
+					x := margin + (usableW-drawW)/2
+					pdf.ImageOptions(photo.FilePath, x, top, drawW, drawH, false, fpdf.ImageOptions{ImageType: imgType}, 0, "")
+					if pdf.Err() {
+						pdf.ClearError()
+					}
+				}
+			}
+		}
+
+		pdf.SetXY(margin, top+drawH+1.5)
+		pdf.SetFont("Helvetica", "", 8)
+		if !ok {
+			pdf.CellFormat(0, captionH, "Photo not embeddable ("+filepath.Base(photo.FilePath)+") - view in app", "", 1, "L", false, 0, "")
+		} else {
+			pdf.CellFormat(0, captionH, "Uploaded "+photo.UploadedAt.Format("2006-01-02 15:04"), "", 1, "L", false, 0, "")
+		}
+	}
 }
 
 // PackingListToPDF renders a printable packing list for every unit shipped

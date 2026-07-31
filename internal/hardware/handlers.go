@@ -3,6 +3,7 @@ package hardware
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -469,6 +470,7 @@ func (h *Handlers) UpsertStage1A(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		log.Printf("UpsertStage1A: %v", err)
 		writeErr(w, http.StatusInternalServerError, "failed to save stage 1-A configuration")
 		return
 	}

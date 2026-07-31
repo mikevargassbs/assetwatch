@@ -171,6 +171,12 @@ function columnLabel(key: string): string {
   return COLUMNS.find((c) => c.key === key)?.label ?? key
 }
 
+function uniqueSorted(values: Array<string | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])).sort((a, b) =>
+    a.localeCompare(b),
+  )
+}
+
 const TABLE_COLUMN_DEFS: { key: string; label: string; render: (u: HardwareUnit) => ReactNode }[] = [
   { key: 'name', label: 'Name', render: (u) => unitLabel(u) },
   { key: 'barcode', label: 'Barcode', render: (u) => u.barcode },
@@ -196,6 +202,16 @@ const TABLE_COLUMN_DEFS: { key: string; label: string; render: (u: HardwareUnit)
 
 const DEFAULT_TABLE_COLUMNS = ['name', 'barcode', 'serial', 'make', 'model', 'site', 'stage']
 const TABLE_COLUMNS_STORAGE_KEY = 'board-table-visible-columns'
+const BOARD_VIEW_STORAGE_KEY = 'board-preferred-view'
+
+function loadBoardViewPreference(): 'board' | 'table' {
+  try {
+    const raw = localStorage.getItem(BOARD_VIEW_STORAGE_KEY)
+    return raw === 'table' ? 'table' : 'board'
+  } catch {
+    return 'board'
+  }
+}
 
 function loadVisibleTableColumns(): string[] {
   try {
@@ -263,7 +279,12 @@ export function BoardPage() {
   const [error, setError] = useState<string | null>(null)
   const [showNewUnit, setShowNewUnit] = useState(false)
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'board' | 'table'>('board')
+  const [stageFilter, setStageFilter] = useState('')
+  const [siteFilter, setSiteFilter] = useState('')
+  const [makeFilter, setMakeFilter] = useState('')
+  const [modelFilter, setModelFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [view, setView] = useState<'board' | 'table'>(loadBoardViewPreference)
   const [visibleTableColumns, setVisibleTableColumns] = useState<string[]>(loadVisibleTableColumns)
   const [dropNotice, setDropNotice] = useState<{ kind: 'error' | 'info'; message: string } | null>(null)
   const [draggingUnitId, setDraggingUnitId] = useState<string | null>(null)
@@ -291,6 +312,10 @@ export function BoardPage() {
   useEffect(() => {
     localStorage.setItem(TABLE_COLUMNS_STORAGE_KEY, JSON.stringify(visibleTableColumns))
   }, [visibleTableColumns])
+
+  useEffect(() => {
+    localStorage.setItem(BOARD_VIEW_STORAGE_KEY, view)
+  }, [view])
 
   function showNotice(kind: 'error' | 'info', message: string) {
     setDropNotice({ kind, message })
@@ -398,7 +423,20 @@ export function BoardPage() {
   // dedicated Exceptions page — they don't belong on the normal lifecycle
   // board, since they're a branch off the main flow, not a stage within it.
   const nonExceptionUnits = units.filter((u) => !u.is_exception)
-  const visibleUnits = search.trim() ? nonExceptionUnits.filter((u) => matchesSearch(u, search)) : nonExceptionUnits
+  const siteOptions = uniqueSorted(nonExceptionUnits.map((u) => u.allocated_branch))
+  const makeOptions = uniqueSorted(nonExceptionUnits.map((u) => u.device_make))
+  const modelOptions = uniqueSorted(nonExceptionUnits.map((u) => u.device_model))
+  const statusOptions = uniqueSorted(nonExceptionUnits.map((u) => u.status))
+  const hasActiveFilters = !!(stageFilter || siteFilter || makeFilter || modelFilter || statusFilter || search.trim())
+  const visibleUnits = nonExceptionUnits.filter((u) => {
+    if (search.trim() && !matchesSearch(u, search)) return false
+    if (stageFilter && u.board_column !== stageFilter) return false
+    if (siteFilter && (u.allocated_branch ?? '') !== siteFilter) return false
+    if (makeFilter && (u.device_make ?? '') !== makeFilter) return false
+    if (modelFilter && (u.device_model ?? '') !== modelFilter) return false
+    if (statusFilter && u.status !== statusFilter) return false
+    return true
+  })
 
   return (
     <div className="board-page">
@@ -434,6 +472,64 @@ export function BoardPage() {
             + New Unit
           </button>
         </div>
+      </div>
+
+      <div className="board-filters">
+        <select className="board-filter-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
+          <option value="">All stages</option>
+          {COLUMNS.map((column) => (
+            <option key={column.key} value={column.key}>
+              {column.label}
+            </option>
+          ))}
+        </select>
+        <select className="board-filter-select" value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)}>
+          <option value="">All sites</option>
+          {siteOptions.map((site) => (
+            <option key={site} value={site}>
+              {site}
+            </option>
+          ))}
+        </select>
+        <select className="board-filter-select" value={makeFilter} onChange={(e) => setMakeFilter(e.target.value)}>
+          <option value="">All makes</option>
+          {makeOptions.map((make) => (
+            <option key={make} value={make}>
+              {make}
+            </option>
+          ))}
+        </select>
+        <select className="board-filter-select" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
+          <option value="">All models</option>
+          {modelOptions.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+        <select className="board-filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setSearch('')
+            setStageFilter('')
+            setSiteFilter('')
+            setMakeFilter('')
+            setModelFilter('')
+            setStatusFilter('')
+          }}
+          disabled={!hasActiveFilters}
+        >
+          Clear filters
+        </button>
       </div>
 
       {error && <div className="board-error">{error}</div>}
@@ -481,7 +577,7 @@ export function BoardPage() {
                       </div>
                     ))}
                 {!loading && visibleUnits.filter((u) => u.board_column === col.key).length === 0 && (
-                  <p className="board-empty">{search.trim() ? 'No matches' : 'No units yet'}</p>
+                  <p className="board-empty">{hasActiveFilters ? 'No matches' : 'No units yet'}</p>
                 )}
               </div>
             </section>
@@ -494,7 +590,7 @@ export function BoardPage() {
           rows={visibleUnits}
           getRowKey={(u) => u.id}
           onRowClick={(u) => navigate(`/units/${u.id}`)}
-          emptyMessage={search.trim() ? 'No matches' : 'No units yet'}
+          emptyMessage={hasActiveFilters ? 'No matches' : 'No units yet'}
           columns={TABLE_COLUMN_DEFS.filter((c) => visibleTableColumns.includes(c.key)).map((c) => ({
             key: c.key,
             header: c.label,
